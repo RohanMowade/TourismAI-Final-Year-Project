@@ -7,6 +7,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { spawn } = require('child_process');
 const path = require('path');
+const multer = require('multer');
+const fs = require('fs');
 
 dotenv.config();
 
@@ -16,6 +18,35 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'upload-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || path.extname(file.originalname) === '.csv') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'));
+    }
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  }
+});
 
 // Database connection
 const sequelize = new Sequelize(
@@ -281,6 +312,31 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// CSV Upload endpoint
+app.post('/api/upload-csv', authenticateToken, upload.single('csv_file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const filePath = req.file.path;
+    const userId = req.user.userId;
+
+    // Store file path in user session or database for later use
+    // You could create a UserUpload model to track uploaded files
+    
+    res.json({
+      message: 'CSV file uploaded successfully',
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      path: filePath,
+      size: req.file.size
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Destinations routes
 app.get('/api/destinations', async (req, res) => {
   try {
@@ -384,20 +440,36 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-// ML Prediction routes
+// ML Prediction routes with CSV support
 app.post('/api/predictions/generate', authenticateToken, async (req, res) => {
   try {
-    const { model_type = 'xgboost', destination_id = 'all', forecast_days = 30 } = req.body;
+    const { 
+      model_type = 'xgboost', 
+      destination_id = 'all', 
+      forecast_days = 30,
+      use_uploaded_csv = false,
+      csv_filename = null
+    } = req.body;
     
     // Call Python ML script
     const pythonScript = path.join(__dirname, '../ml-models/predict.py');
     
-    const pythonProcess = spawn('python', [
+    const args = [
       pythonScript,
       '--model', model_type,
       '--destination', destination_id,
       '--days', forecast_days.toString()
-    ]);
+    ];
+
+    // Add CSV file path if using uploaded data
+    if (use_uploaded_csv && csv_filename) {
+      const csvPath = path.join(__dirname, 'uploads', csv_filename);
+      if (fs.existsSync(csvPath)) {
+        args.push('--csv_file', csvPath);
+      }
+    }
+    
+    const pythonProcess = spawn('python', args);
     
     let predictions = '';
     let errors = '';
@@ -432,7 +504,8 @@ app.post('/api/predictions/generate', authenticateToken, async (req, res) => {
           
           res.json({
             message: 'Predictions generated successfully',
-            predictions: predictionData
+            predictions: predictionData,
+            source: use_uploaded_csv ? 'uploaded_csv' : 'database'
           });
         } catch (parseError) {
           res.status(500).json({ 
@@ -528,6 +601,14 @@ app.post('/api/analytics/market-basket', authenticateToken, async (req, res) => 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File is too large. Maximum size is 10MB' });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+  
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
@@ -537,12 +618,17 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('✅ Database connected successfully');
     
-    // Don't sync models (tables already exist from SQL schema)
-    // await sequelize.sync({ alter: false });
+    // Create uploads directory if it doesn't exist
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+      console.log('✅ Uploads directory created');
+    }
     
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);
+      console.log(`📁 CSV uploads stored in: ${uploadDir}`);
     });
   } catch (error) {
     console.error('❌ Unable to start server:', error);

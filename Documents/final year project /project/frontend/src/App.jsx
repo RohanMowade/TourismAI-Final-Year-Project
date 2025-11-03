@@ -49,6 +49,7 @@ const TourismSalesPredictor = () => {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
+  const [trendView, setTrendView] = useState('monthly');
   const [dashboardData, setDashboardData] = useState({
     totalSales: 0,
     totalBookings: 0,
@@ -62,9 +63,23 @@ const TourismSalesPredictor = () => {
   const [selectedDestination, setSelectedDestination] = useState('all');
   const [selectedModel, setSelectedModel] = useState('xgboost');
   const [marketBasketRules, setMarketBasketRules] = useState([]);
-
+  const [uploadedFile, setUploadedFile] = useState(null);
+  
   // Authentication
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+
+  // Helper function to calculate quarterly trend
+  const getQuarterlyTrend = (monthlyTrend) => {
+    const quarters = [
+      { name: 'Q1', sales: 0 },
+      { name: 'Q2', sales: 0 }
+    ];
+    for (let i = 0; i < monthlyTrend.length; i++) {
+      if (i < 3) quarters[0].sales += monthlyTrend[i].sales;
+      else quarters[1].sales += monthlyTrend[i].sales;
+    }
+    return quarters;
+  };
 
   // Mock API functions
   const api = {
@@ -72,11 +87,11 @@ const TourismSalesPredictor = () => {
       setLoading(true);
       try {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const mockUser = { 
-          id: 1, 
-          username: credentials.username, 
+        const mockUser = {
+          id: 1,
+          email: credentials.email,
           role: 'analyst',
-          name: 'Alex Johnson',
+          name: credentials.email || 'User',
           avatar: null
         };
         setUser(mockUser);
@@ -244,6 +259,27 @@ const TourismSalesPredictor = () => {
     }
   };
 
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (file && (file.type === 'text/csv' || file.name.endsWith('.csv'))) {
+      setLoading(true);
+      setUploadedFile(file);
+      
+      // Simulate upload process
+      try {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        alert('CSV uploaded successfully! You can now generate predictions with your data.');
+      } catch (error) {
+        alert('Failed to upload CSV: ' + error.message);
+        setUploadedFile(null);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      alert('Please upload a valid CSV file');
+    }
+  };
+
   const runMarketBasketAnalysis = async () => {
     try {
       setLoading(true);
@@ -271,13 +307,13 @@ const TourismSalesPredictor = () => {
 
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-white/90 mb-3">Username</label>
+              <label className="block text-sm font-medium text-white/90 mb-3">Email</label>
               <input
-                type="text"
-                value={loginForm.username}
-                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                type="email"
+                value={loginForm.email}
+                onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
                 className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/60 focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm"
-                placeholder="Enter username"
+                placeholder="Enter your email"
               />
             </div>
             
@@ -303,7 +339,7 @@ const TourismSalesPredictor = () => {
           </div>
 
           <div className="mt-6 text-center text-sm text-white/70">
-            Demo: <code className="bg-white/20 px-2 py-1 rounded">demo</code> / <code className="bg-white/20 px-2 py-1 rounded">demo123</code>
+            Demo: <code className="bg-white/20 px-2 py-1 rounded">demo@example.com</code> / <code className="bg-white/20 px-2 py-1 rounded">demo123</code>
           </div>
         </div>
       </div>
@@ -356,12 +392,20 @@ const TourismSalesPredictor = () => {
                 <Bell size={20} />
                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
               </button>
+              
               <div className="flex items-center space-x-3 bg-white/80 rounded-2xl px-3 py-2 shadow-sm">
                 <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
                   <User className="text-white" size={16} />
                 </div>
                 <span className="text-sm font-medium text-gray-700">{user.name}</span>
-                <ChevronDown className="text-gray-400" size={16} />
+                
+                <button
+                  onClick={handleLogout}
+                  className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition duration-200 ml-2"
+                  title="Sign Out"
+                >
+                  <LogOut size={16} />
+                </button>
               </div>
             </div>
           </div>
@@ -395,7 +439,7 @@ const TourismSalesPredictor = () => {
               {[
                 { 
                   title: 'Total Revenue', 
-                  value: `$${(dashboardData.totalSales / 100000).toFixed(1)}L`, 
+                  value: `₹${(dashboardData.totalSales / 100000).toFixed(1)}L`, 
                   change: '+12.5%',
                   trend: 'up',
                   icon: DollarSign, 
@@ -413,7 +457,7 @@ const TourismSalesPredictor = () => {
                 },
                 { 
                   title: 'Avg. Booking Value', 
-                  value: `$${dashboardData.averageBookingValue.toLocaleString()}`, 
+                  value: `₹${dashboardData.averageBookingValue.toLocaleString()}`, 
                   change: '+3.1%',
                   trend: 'up',
                   icon: TrendingUp, 
@@ -459,12 +503,22 @@ const TourismSalesPredictor = () => {
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-semibold text-gray-900">Revenue Trend</h3>
                   <div className="flex space-x-2">
-                    <button className="px-3 py-1 text-xs bg-indigo-50 text-indigo-600 rounded-lg font-medium">Monthly</button>
-                    <button className="px-3 py-1 text-xs text-gray-500 rounded-lg font-medium">Quarterly</button>
+                    <button
+                      className={`px-3 py-1 text-xs rounded-lg font-medium border border-gray-300 ${trendView === 'monthly' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500'} transition`}
+                      onClick={() => setTrendView('monthly')}
+                    >
+                      Monthly
+                    </button>
+                    <button
+                      className={`px-3 py-1 text-xs rounded-lg font-medium border border-gray-300 ${trendView === 'quarterly' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500'} transition`}
+                      onClick={() => setTrendView('quarterly')}
+                    >
+                      Quarterly
+                    </button>
                   </div>
                 </div>
                 <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={dashboardData.monthlyTrend}>
+                  <AreaChart data={trendView === 'monthly' ? dashboardData.monthlyTrend : getQuarterlyTrend(dashboardData.monthlyTrend)}>
                     <defs>
                       <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.3}/>
@@ -473,7 +527,7 @@ const TourismSalesPredictor = () => {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis 
-                      dataKey="month" 
+                      dataKey={trendView === 'monthly' ? 'month' : 'name'} 
                       tick={{ fontSize: 12, fill: '#666' }}
                       axisLine={false}
                       tickLine={false}
@@ -484,7 +538,7 @@ const TourismSalesPredictor = () => {
                       tickLine={false}
                     />
                     <Tooltip 
-                      formatter={(value) => [`$${(value/1000).toFixed(0)}K`, 'Sales']}
+                      formatter={(value) => [`₹${(value/1000).toFixed(0)}K`, 'Sales']}
                       contentStyle={{ 
                         backgroundColor: '#fff',
                         border: '1px solid #e5e7eb',
@@ -524,7 +578,7 @@ const TourismSalesPredictor = () => {
                       tickLine={false}
                     />
                     <Tooltip 
-                      formatter={(value) => [`$${(value/1000).toFixed(0)}K`, 'Sales']}
+                      formatter={(value) => [`₹${(value/1000).toFixed(0)}K`, 'Sales']}
                       contentStyle={{ 
                         backgroundColor: '#fff',
                         border: '1px solid #e5e7eb',
@@ -567,6 +621,41 @@ const TourismSalesPredictor = () => {
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm p-6 border border-gray-200/50">
                 <h3 className="text-lg font-semibold text-gray-900 mb-6">Prediction Settings</h3>
+                
+                {/* CSV Upload Section */}
+                <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-gray-900 mb-2 flex items-center">
+                        <Database className="mr-2 text-blue-600" size={20} />
+                        Upload Custom Dataset
+                      </h4>
+                      <p className="text-sm text-gray-600 mb-3">
+                        Upload your own CSV file to generate predictions based on your data
+                      </p>
+                      <label className="relative cursor-pointer">
+                        <input
+                          type="file"
+                          accept=".csv"
+                          onChange={handleFileUpload}
+                          className="hidden"
+                          disabled={loading}
+                        />
+                        <div className="inline-flex items-center px-4 py-2 bg-white border-2 border-blue-300 rounded-lg hover:bg-blue-50 transition duration-200 font-medium text-blue-700">
+                          <Download className="mr-2" size={16} />
+                          {uploadedFile ? 'Change CSV File' : 'Select CSV File'}
+                        </div>
+                      </label>
+                      {uploadedFile && (
+                        <div className="mt-2 flex items-center text-sm text-green-700">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                          File uploaded: <span className="font-medium ml-1">{uploadedFile.name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-3">AI Model</label>
@@ -662,7 +751,7 @@ const TourismSalesPredictor = () => {
                     <Tooltip 
                       labelFormatter={(date) => new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                       formatter={(value, name) => [
-                        name === 'predicted_sales' ? `$${(value/1000).toFixed(1)}K` : Math.round(value),
+                        name === 'predicted_sales' ? `₹${(value/1000).toFixed(1)}K` : Math.round(value),
                         name === 'predicted_sales' ? 'Predicted Sales' : 'Predicted Bookings'
                       ]}
                       contentStyle={{ 
